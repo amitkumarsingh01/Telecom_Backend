@@ -1,0 +1,47 @@
+### Node.js ###
+# Node modules
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment Variables
+.env
+.env.*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+
+# Dependencies
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist/
+build/
+
+# Testing
+coverage/
+*.lcov
+
+# Temporary files
+*.tmp
+*.log
+
+# Miscellaneous
+*.bak
+*.orig
+
+# Ignore compiled TypeScript files
+*.tsbuildinfo
