@@ -54,18 +54,19 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
-  storage,
-  limits: { fileSize: 1024 * 1024 * 5 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
-        file.mimetype === 'application/vnd.ms-excel') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only Excel files are allowed'), false);
+// Remove the disk storage configuration
+const upload = multer({
+    storage: multer.memoryStorage(), // Use memory storage instead of disk storage
+    limits: { fileSize: 1024 * 1024 * 5 },
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+          file.mimetype === 'application/vnd.ms-excel') {
+        cb(null, true);
+      } else {
+        cb(new Error('Only Excel files are allowed'), false);
+      }
     }
-  }
-});
+  });
 
 const auth = (req, res, next) => {
   try {
@@ -245,50 +246,60 @@ app.delete('/api/students/:id', auth, checkRole(['Admin', 'Agent']), async (req,
   }
 });
 
-app.post('/api/upload-excel', auth, checkRole(['Admin', 'Agent']), upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).send({ error: 'Please upload an Excel file' });
-    }
-    
-    const workbook = xlsx.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet);
-    
-    if (data.length === 0) {
-      return res.status(400).send({ error: 'Excel file is empty' });
-    }
-    
-    const students = data.map(row => ({
-      name: row.name,
-      email: row.email,
-      phone: row.phone,
-      description: row.description || '',
-      addedBy: req.user.id
-    }));
-    
-    await Student.insertMany(students);
-    res.status(201).send({ message: `${students.length} students added successfully` });
-  } catch (error) {
-    res.status(400).send({ error: error.message });
-  }
-});
-
-app.get('/api/sample-excel', auth, checkRole(['Admin', 'Agent']), (req, res) => {
-  const worksheet = xlsx.utils.json_to_sheet([
-    { name: 'Sample Student', email: 'sample@example.com', phone: '1234567890', description: 'Sample description' }
-  ]);
-  const workbook = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(workbook, worksheet, 'Students');
+app.post('/api/upload-excel', [auth, checkRole(['Admin', 'Agent']), upload.single('file')], async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: 'Please upload an Excel file' });
   
-  const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      // Use the buffer directly instead of file path
+      const workbook = xlsx.read(file.buffer);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = xlsx.utils.sheet_to_json(sheet);
   
-  res.setHeader('Content-Disposition', 'attachment; filename=sample-students.xlsx');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buffer);
-});
-
+      if (!data.length) return res.status(400).json({ error: 'Excel file is empty' });
+  
+      // Validate data has required fields
+      const requiredFields = ['name', 'email', 'phone'];
+      const missingFields = data.some(row => {
+        return requiredFields.some(field => !row[field]);
+      });
+  
+      if (missingFields) {
+        return res.status(400).json({ error: 'Excel data is missing required fields (name, email, phone)' });
+      }
+  
+      const students = data.map(({ name, email, phone, description = '' }) => ({
+        name,
+        email,
+        phone,
+        description,
+        addedBy: req.user.id
+      }));
+  
+      await Student.insertMany(students);
+      res.status(201).json({ message: `${students.length} students added successfully` });
+    } catch (error) {
+      console.error('Upload Error:', error);
+      res.status(500).json({ error: error.message || 'An internal server error occurred' });
+    }
+  });
+  
+  app.get('/api/sample-excel', [auth, checkRole(['Admin', 'Agent'])], (req, res) => {
+    const sampleData = [
+      { name: 'Sample Student', email: 'sample@example.com', phone: '1234567890', description: 'Sample description' }
+    ];
+  
+    const worksheet = xlsx.utils.json_to_sheet(sampleData);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Students');
+  
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  
+    res.setHeader('Content-Disposition', 'attachment; filename=sample-students.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  });
+  
 app.get('/api/users', auth, checkRole(['Admin']), async (req, res) => {
   try {
     const users = await User.find().select('-password');

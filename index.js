@@ -24,10 +24,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   userType: { type: String, enum: ['Admin', 'Agent', 'TeleCaller'], required: true },
-  teleCaller: {
-    category: { type: String, enum: ['experienced', 'fresher'] },
-    assignedCount: { type: Number, default: 0 }
-  }
+  assignedCount: { type: Number, default: 0 }
 });
 
 const User = mongoose.model('User', userSchema);
@@ -45,18 +42,8 @@ const studentSchema = new mongoose.Schema({
 
 const Student = mongoose.model('Student', studentSchema);
 
-const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    cb(null, './uploads/');
-  },
-  filename: function(req, file, cb) {
-    cb(null, new Date().toISOString().replace(/:/g, '-') + file.originalname);
-  }
-});
-
-// Remove the disk storage configuration
 const upload = multer({
-    storage: multer.memoryStorage(), // Use memory storage instead of disk storage
+    storage: multer.memoryStorage(),
     limits: { fileSize: 1024 * 1024 * 5 },
     fileFilter: (req, file, cb) => {
       if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
@@ -66,7 +53,7 @@ const upload = multer({
         cb(new Error('Only Excel files are allowed'), false);
       }
     }
-  });
+});
 
 const auth = (req, res, next) => {
   try {
@@ -90,7 +77,7 @@ const checkRole = (roles) => {
 
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, password, userType, teleCaller } = req.body;
+    const { username, password, userType } = req.body;
     
     // Hash password
     const salt = await bcrypt.genSalt(10);
@@ -99,8 +86,7 @@ app.post('/api/register', async (req, res) => {
     const user = new User({
       username,
       password: hashedPassword,
-      userType,
-      teleCaller: userType === 'TeleCaller' ? teleCaller : undefined
+      userType
     });
     
     await user.save();
@@ -247,59 +233,59 @@ app.delete('/api/students/:id', auth, checkRole(['Admin', 'Agent']), async (req,
 });
 
 app.post('/api/upload-excel', [auth, checkRole(['Admin', 'Agent']), upload.single('file')], async (req, res) => {
-    try {
-      const file = req.file;
-      if (!file) return res.status(400).json({ error: 'Please upload an Excel file' });
-  
-      // Use the buffer directly instead of file path
-      const workbook = xlsx.read(file.buffer);
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = xlsx.utils.sheet_to_json(sheet);
-  
-      if (!data.length) return res.status(400).json({ error: 'Excel file is empty' });
-  
-      // Validate data has required fields
-      const requiredFields = ['name', 'email', 'phone'];
-      const missingFields = data.some(row => {
-        return requiredFields.some(field => !row[field]);
-      });
-  
-      if (missingFields) {
-        return res.status(400).json({ error: 'Excel data is missing required fields (name, email, phone)' });
-      }
-  
-      const students = data.map(({ name, email, phone, description = '' }) => ({
-        name,
-        email,
-        phone,
-        description,
-        addedBy: req.user.id
-      }));
-  
-      await Student.insertMany(students);
-      res.status(201).json({ message: `${students.length} students added successfully` });
-    } catch (error) {
-      console.error('Upload Error:', error);
-      res.status(500).json({ error: error.message || 'An internal server error occurred' });
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Please upload an Excel file' });
+
+    // Use the buffer directly instead of file path
+    const workbook = xlsx.read(file.buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (!data.length) return res.status(400).json({ error: 'Excel file is empty' });
+
+    // Validate data has required fields
+    const requiredFields = ['name', 'email', 'phone'];
+    const missingFields = data.some(row => {
+      return requiredFields.some(field => !row[field]);
+    });
+
+    if (missingFields) {
+      return res.status(400).json({ error: 'Excel data is missing required fields (name, email, phone)' });
     }
-  });
-  
-  app.get('/api/sample-excel', [auth, checkRole(['Admin', 'Agent'])], (req, res) => {
-    const sampleData = [
-      { name: 'Sample Student', email: 'sample@example.com', phone: '1234567890', description: 'Sample description' }
-    ];
-  
-    const worksheet = xlsx.utils.json_to_sheet(sampleData);
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(workbook, worksheet, 'Students');
-  
-    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-  
-    res.setHeader('Content-Disposition', 'attachment; filename=sample-students.xlsx');
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.send(buffer);
-  });
-  
+
+    const students = data.map(({ name, email, phone, description = '' }) => ({
+      name,
+      email,
+      phone,
+      description,
+      addedBy: req.user.id
+    }));
+
+    await Student.insertMany(students);
+    res.status(201).json({ message: `${students.length} students added successfully` });
+  } catch (error) {
+    console.error('Upload Error:', error);
+    res.status(500).json({ error: error.message || 'An internal server error occurred' });
+  }
+});
+
+app.get('/api/sample-excel', [auth, checkRole(['Admin', 'Agent'])], (req, res) => {
+  const sampleData = [
+    { name: 'Sample Student', email: 'sample@example.com', phone: '1234567890', description: 'Sample description' }
+  ];
+
+  const worksheet = xlsx.utils.json_to_sheet(sampleData);
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(workbook, worksheet, 'Students');
+
+  const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Disposition', 'attachment; filename=sample-students.xlsx');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buffer);
+});
+
 app.get('/api/users', auth, checkRole(['Admin']), async (req, res) => {
   try {
     const users = await User.find().select('-password');
@@ -323,26 +309,14 @@ app.post('/api/assign-automated', auth, checkRole(['Admin']), async (req, res) =
       return res.status(400).send({ error: 'No telecallers found' });
     }
     
-    const experiencedTelecallers = telecallers.filter(t => t.teleCaller.category === 'experienced');
-    const fresherTelecallers = telecallers.filter(t => t.teleCaller.category === 'fresher');
-    
-    const experiencedWeight = 2;
-    const fresherWeight = 1;
-    
-    const totalWeight = (experiencedTelecallers.length * experiencedWeight) + (fresherTelecallers.length * fresherWeight);
-    
-    if (totalWeight === 0) {
-      return res.status(400).send({ error: 'No valid telecallers found' });
-    }
-    
-    const studentPerWeight = Math.floor(unassignedStudents.length / totalWeight);
-    
+    // Simple equal distribution
+    const studentPerTelecaller = Math.floor(unassignedStudents.length / telecallers.length);
     let assignedCount = 0;
     let currentStudentIndex = 0;
     
-    for (const telecaller of experiencedTelecallers) {
-      const studentsToAssign = studentPerWeight * experiencedWeight;
-      for (let i = 0; i < studentsToAssign && currentStudentIndex < unassignedStudents.length; i++) {
+    // First assign equal number to each telecaller
+    for (const telecaller of telecallers) {
+      for (let i = 0; i < studentPerTelecaller && currentStudentIndex < unassignedStudents.length; i++) {
         const student = unassignedStudents[currentStudentIndex];
         student.assignedTo = telecaller._id;
         await student.save();
@@ -350,26 +324,13 @@ app.post('/api/assign-automated', auth, checkRole(['Admin']), async (req, res) =
         assignedCount++;
       }
 
-      telecaller.teleCaller.assignedCount += studentsToAssign;
+      telecaller.assignedCount += studentPerTelecaller;
       await telecaller.save();
     }
 
-    for (const telecaller of fresherTelecallers) {
-      const studentsToAssign = studentPerWeight * fresherWeight;
-      for (let i = 0; i < studentsToAssign && currentStudentIndex < unassignedStudents.length; i++) {
-        const student = unassignedStudents[currentStudentIndex];
-        student.assignedTo = telecaller._id;
-        await student.save();
-        currentStudentIndex++;
-        assignedCount++;
-      }
-
-      telecaller.teleCaller.assignedCount += studentsToAssign;
-      await telecaller.save();
-    }
-
+    // Distribute remaining students
     while (currentStudentIndex < unassignedStudents.length) {
-      for (const telecaller of [...experiencedTelecallers, ...fresherTelecallers]) {
+      for (const telecaller of telecallers) {
         if (currentStudentIndex >= unassignedStudents.length) break;
         
         const student = unassignedStudents[currentStudentIndex];
@@ -377,7 +338,7 @@ app.post('/api/assign-automated', auth, checkRole(['Admin']), async (req, res) =
         await student.save();
         currentStudentIndex++;
         assignedCount++;
-        telecaller.teleCaller.assignedCount += 1;
+        telecaller.assignedCount += 1;
         await telecaller.save();
       }
     }
@@ -404,7 +365,7 @@ app.post('/api/assign-manual', auth, checkRole(['Admin']), async (req, res) => {
     
     student.assignedTo = telecallerId;
     await student.save();
-    telecaller.teleCaller.assignedCount += 1;
+    telecaller.assignedCount += 1;
     await telecaller.save();
     
     res.send({ message: 'Student assigned successfully' });
@@ -412,6 +373,7 @@ app.post('/api/assign-manual', auth, checkRole(['Admin']), async (req, res) => {
     res.status(500).send({ error: error.message });
   }
 });
+
 app.get('/api/assigned-students', auth, checkRole(['TeleCaller']), async (req, res) => {
   try {
     const students = await Student.find({ assignedTo: req.user.id });
@@ -420,6 +382,7 @@ app.get('/api/assigned-students', auth, checkRole(['TeleCaller']), async (req, r
     res.status(500).send({ error: error.message });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
