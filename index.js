@@ -438,6 +438,63 @@ app.post('/api/unassign-pending', auth, checkRole(['Admin']), async (req, res) =
   }
 });
 
+// Bulk assignment endpoint
+app.post('/api/assign-bulk', auth, checkRole(['Admin']), async (req, res) => {
+  try {
+    const { count, telecallerId } = req.body;
+    
+    // Validate input
+    if (!count || count <= 0) {
+      return res.status(400).send({ error: 'Please provide a valid count of students to assign' });
+    }
+    
+    if (!telecallerId) {
+      return res.status(400).send({ error: 'Please provide a telecaller ID' });
+    }
+    
+    // Find the telecaller
+    const telecaller = await User.findById(telecallerId);
+    if (!telecaller || telecaller.userType !== 'TeleCaller') {
+      return res.status(404).send({ error: 'Telecaller not found' });
+    }
+    
+    // Find unassigned students
+    const unassignedStudents = await Student.find({ assignedTo: null }).limit(parseInt(count));
+    
+    if (unassignedStudents.length === 0) {
+      return res.status(404).send({ error: 'No unassigned students found' });
+    }
+    
+    if (unassignedStudents.length < count) {
+      return res.status(400).send({ 
+        error: `Only ${unassignedStudents.length} unassigned students available. Requested: ${count}` 
+      });
+    }
+    
+    // Assign students to the telecaller
+    let assignedCount = 0;
+    
+    for (const student of unassignedStudents) {
+      student.assignedTo = telecallerId;
+      await student.save();
+      assignedCount++;
+    }
+    
+    // Update telecaller's assigned count
+    telecaller.assignedCount += assignedCount;
+    await telecaller.save();
+    
+    res.send({ 
+      message: `Successfully assigned ${assignedCount} students to ${telecaller.username}`,
+      assignedCount
+    });
+    
+  } catch (error) {
+    console.error('Bulk assignment error:', error);
+    res.status(500).send({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
