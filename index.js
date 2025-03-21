@@ -383,6 +383,61 @@ app.get('/api/assigned-students', auth, checkRole(['TeleCaller']), async (req, r
   }
 });
 
+// Unassign all pending students (assigned but not accepted/rejected)
+app.post('/api/unassign-pending', auth, checkRole(['Admin']), async (req, res) => {
+  try {
+    // Find all students who are assigned but not accepted/rejected
+    const pendingStudents = await Student.find({
+      assignedTo: { $ne: null },
+      status: { $nin: ['accepted', 'rejected'] }
+    });
+    
+    if (pendingStudents.length === 0) {
+      return res.send({ message: 'No pending students found to unassign' });
+    }
+    
+    // Keep track of telecallers whose count needs to be updated
+    const telecallerUpdates = {};
+    
+    // Unassign each pending student
+    for (const student of pendingStudents) {
+      // Store the telecaller ID before unassigning
+      const telecallerId = student.assignedTo;
+      
+      // Add this telecaller to our update tracking if not already there
+      if (!telecallerUpdates[telecallerId]) {
+        telecallerUpdates[telecallerId] = 0;
+      }
+      
+      // Count this student for the telecaller
+      telecallerUpdates[telecallerId]++;
+      
+      // Unassign the student
+      student.assignedTo = null;
+      await student.save();
+    }
+    
+    // Update telecaller assigned counts
+    for (const telecallerId in telecallerUpdates) {
+      const telecaller = await User.findById(telecallerId);
+      if (telecaller) {
+        telecaller.assignedCount -= telecallerUpdates[telecallerId];
+        // Ensure assignedCount doesn't go below 0
+        if (telecaller.assignedCount < 0) {
+          telecaller.assignedCount = 0;
+        }
+        await telecaller.save();
+      }
+    }
+    
+    res.send({ 
+      message: `${pendingStudents.length} pending students have been unassigned successfully` 
+    });
+  } catch (error) {
+    res.status(500).send({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
