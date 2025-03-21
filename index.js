@@ -383,6 +383,7 @@ app.get('/api/assigned-students', auth, checkRole(['TeleCaller']), async (req, r
   }
 });
 
+// Unassign all pending students (assigned but not accepted/rejected)
 app.post('/api/unassign-pending', auth, checkRole(['Admin']), async (req, res) => {
   try {
     // Find all students who are assigned but not accepted/rejected
@@ -392,16 +393,16 @@ app.post('/api/unassign-pending', auth, checkRole(['Admin']), async (req, res) =
     });
     
     if (pendingStudents.length === 0) {
-      return res.status(200).json({ message: 'No pending students found to unassign' });
+      return res.send({ message: 'No pending students found to unassign' });
     }
     
     // Keep track of telecallers whose count needs to be updated
     const telecallerUpdates = {};
     
     // Unassign each pending student
-    const updatePromises = pendingStudents.map(student => {
+    for (const student of pendingStudents) {
       // Store the telecaller ID before unassigning
-      const telecallerId = student.assignedTo.toString(); // Convert ObjectId to string
+      const telecallerId = student.assignedTo;
       
       // Add this telecaller to our update tracking if not already there
       if (!telecallerUpdates[telecallerId]) {
@@ -413,14 +414,11 @@ app.post('/api/unassign-pending', auth, checkRole(['Admin']), async (req, res) =
       
       // Unassign the student
       student.assignedTo = null;
-      return student.save();
-    });
-    
-    // Wait for all student updates to complete
-    await Promise.all(updatePromises);
+      await student.save();
+    }
     
     // Update telecaller assigned counts
-    const telecallerPromises = Object.keys(telecallerUpdates).map(async (telecallerId) => {
+    for (const telecallerId in telecallerUpdates) {
       const telecaller = await User.findById(telecallerId);
       if (telecaller) {
         telecaller.assignedCount -= telecallerUpdates[telecallerId];
@@ -428,19 +426,15 @@ app.post('/api/unassign-pending', auth, checkRole(['Admin']), async (req, res) =
         if (telecaller.assignedCount < 0) {
           telecaller.assignedCount = 0;
         }
-        return telecaller.save();
+        await telecaller.save();
       }
-    });
+    }
     
-    // Wait for all telecaller updates to complete
-    await Promise.all(telecallerPromises);
-    
-    res.status(200).json({ 
+    res.send({ 
       message: `${pendingStudents.length} pending students have been unassigned successfully` 
     });
   } catch (error) {
-    console.error('Error unassigning pending students:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).send({ error: error.message });
   }
 });
 
